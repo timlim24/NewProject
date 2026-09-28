@@ -52,7 +52,7 @@ main() {
     echo "    already in ECR, skipping"
   else
     # Lambda accepts only single-platform images without attestation manifests.
-    docker build --platform linux/arm64 --provenance=false --sbom=false --tag "$image" backend
+    docker build --platform linux/amd64 --provenance=false --sbom=false --tag "$image" backend
     aws ecr get-login-password | docker login --username AWS --password-stdin "${repository%%/*}"
     docker push "$image"
   fi

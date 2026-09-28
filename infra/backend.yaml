@@ -220,7 +220,7 @@ Resources:
       PackageType: Image
       Code:
         ImageUri: !Ref ImageUri
-      Architectures: [arm64]
+      Architectures: [x86_64]
       MemorySize: !Ref MemorySize
       # Covers a cold start: resuming a paused database + migrations check + app startup.
       Timeout: 60
