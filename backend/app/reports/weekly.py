@@ -186,8 +186,18 @@ async def generate_weekly_report(week: str, session: AsyncSession | None = None)
     if session is not None:
         return await _run(session)
     else:
-        async with SessionLocal() as s:
-            return await _run(s)
+        from app.config import settings
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+        from sqlalchemy.pool import NullPool
+
+        local_engine = create_async_engine(settings.database_url, poolclass=NullPool)
+        local_sessionmaker = async_sessionmaker(local_engine, expire_on_commit=False)
+        try:
+            async with local_sessionmaker() as s:
+                return await _run(s)
+        finally:
+            await local_engine.dispose()
+
 
 
 def build_weekly_report(week: str) -> bytes:
