@@ -124,21 +124,19 @@ def main():
     logger.info("Loading handler: %s", handler_path)
     handler_fn = load_handler(handler_path)
 
-    port = int(os.environ.get("AWS_LWA_PORT", os.environ.get("PORT", "8000")))
-    runtime_api = os.environ.get("AWS_LAMBDA_RUNTIME_API")
+    primary_port = int(os.environ.get("AWS_LWA_PORT", os.environ.get("PORT", "8080")))
+    alt_port = 8000 if primary_port == 8080 else 8080
 
-    # If Lambda Web Adapter extension is present, we run the HTTP server on port 8000.
-    # Otherwise, if native runtime API is present, we run native loop.
-    # Running both (HTTP server in thread if runtime API present) ensures all modes succeed.
-    if os.path.exists("/opt/extensions/lambda-adapter"):
-        logger.info("Lambda Web Adapter detected, starting HTTP bridge on port %d", port)
-        run_http_server(handler_fn, port)
-    elif runtime_api:
-        run_runtime_api(handler_fn, runtime_api)
-    else:
-        # Local development or testing
-        logger.info("Running locally on port %d", port)
-        run_http_server(handler_fn, port)
+    logger.info("Starting Lambda handler HTTP adapter on ports %d and %d", primary_port, alt_port)
+
+    # Start listener on alternate port in background thread so both 8080 and 8000 respond
+    try:
+        t = threading.Thread(target=run_http_server, args=(handler_fn, alt_port), daemon=True)
+        t.start()
+    except Exception as e:
+        logger.warning("Could not start listener on alt port %d: %s", alt_port, e)
+
+    run_http_server(handler_fn, primary_port)
 
 
 if __name__ == "__main__":

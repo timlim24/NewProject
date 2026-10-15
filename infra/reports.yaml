@@ -211,6 +211,9 @@ Resources:
         Variables:
           DATABASE_URL: !Ref DatabaseUrl
           REPORTS_BUCKET: !Sub ${ProjectName}-reports-${AWS::AccountId}
+          AWS_LWA_PORT: "8080"
+          AWS_LWA_READINESS_CHECK_PATH: "/"
+          AWS_LWA_ASYNC_INIT: "true"
       Tags:
         - Key: PROJECT_NAME
           Value: !Ref ProjectName
