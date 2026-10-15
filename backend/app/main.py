@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, FastAPI
+from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
@@ -30,8 +30,17 @@ async def health(session: SessionDep) -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.post("/events")
+async def handle_events(request: Request):
+    event = await request.json()
+    from app.reports.lambda_handler import handler
+
+    return handler(event, None)
+
+
 # Everything but /api/health needs a signed-in user; meetings are scoped to their owner.
 api.include_router(me.router)
 api.include_router(meetings.router)
 api.include_router(participants.router, dependencies=[Depends(get_current_user)])
 app.include_router(api)
+
