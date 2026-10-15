@@ -127,7 +127,7 @@ async def generate_weekly_report(week: str, session: AsyncSession | None = None)
         writer.writerow([])
 
         # 1. Summary
-        writer.writerow(["=== SUMMARY ==="])
+        writer.writerow(["SECTION: SUMMARY"])
         writer.writerow(
             ["Metric", f"This Week ({week})", f"Previous Week ({prev_week_str})", "Change"]
         )
@@ -143,7 +143,7 @@ async def generate_weekly_report(week: str, session: AsyncSession | None = None)
         writer.writerow([])
 
         # 2. Top 5 longest meetings
-        writer.writerow(["=== TOP 5 LONGEST MEETINGS ==="])
+        writer.writerow(["SECTION: TOP 5 LONGEST MEETINGS"])
         writer.writerow(
             ["Rank", "Title", "Start Time (UTC)", "Duration (hours)", "Participants Count"]
         )
@@ -164,7 +164,7 @@ async def generate_weekly_report(week: str, session: AsyncSession | None = None)
         writer.writerow([])
 
         # 3. Organizer breakdown
-        writer.writerow(["=== ORGANIZER BREAKDOWN ==="])
+        writer.writerow(["SECTION: ORGANIZER BREAKDOWN"])
         writer.writerow(["Name", "Email", "Meeting Count", "Total Duration (hours)"])
         if not organizer_stats:
             writer.writerow(["-", "-", "0", "0.00"])
