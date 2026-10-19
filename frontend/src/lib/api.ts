@@ -137,7 +137,7 @@ export async function parseAgenda(
     PARSER_URL ||
     (import.meta.env.DEV
       ? `${API_URL}/api/ai/parse`
-      : 'https://wwq74vankmuw6wpcww4ljdk33m0hsbaw.lambda-url.us-east-1.on.aws')
+      : 'https://wwq74vankmuw6wpcww4ljdk33m0hsbaw.lambda-url.us-east-1.on.aws/')
 
   const response = await fetch(endpoint, {
     method: 'POST',
