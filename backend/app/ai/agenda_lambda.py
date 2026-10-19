@@ -77,11 +77,8 @@ def handler(event, context):
     # Case-insensitive header lookup
     auth_header = headers.get("authorization") or headers.get("Authorization") or ""
 
-    cors_headers = {
+    resp_headers = {
         "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization",
     }
 
     # Handle CORS preflight
@@ -91,7 +88,7 @@ def handler(event, context):
         or ""
     ).upper()
     if http_method == "OPTIONS":
-        return {"statusCode": 200, "headers": cors_headers, "body": "{}"}
+        return {"statusCode": 200, "headers": resp_headers, "body": "{}"}
 
     try:
         user = verify_cognito_token(auth_header)
@@ -99,7 +96,7 @@ def handler(event, context):
         logger.warning("Authentication failed: %s", e)
         return {
             "statusCode": 401,
-            "headers": cors_headers,
+            "headers": resp_headers,
             "body": json.dumps({"error": "Unauthorized"}),
         }
 
@@ -113,7 +110,7 @@ def handler(event, context):
     except Exception as e:
         return {
             "statusCode": 400,
-            "headers": cors_headers,
+            "headers": resp_headers,
             "body": json.dumps({"error": f"Invalid JSON body: {e}"}),
         }
 
@@ -121,7 +118,7 @@ def handler(event, context):
     if len(text) > 10000:
         return {
             "statusCode": 413,
-            "headers": cors_headers,
+            "headers": resp_headers,
             "body": json.dumps({"error": "Text too long (max 10,000 characters)"}),
         }
 
@@ -140,7 +137,7 @@ def handler(event, context):
         logger.warning("Agenda parse error: %s", e)
         return {
             "statusCode": 422,
-            "headers": cors_headers,
+            "headers": resp_headers,
             "body": json.dumps({"error": str(e)}),
         }
     except Exception as e:
@@ -148,13 +145,13 @@ def handler(event, context):
         if "ThrottlingException" in err_msg or "429" in err_msg:
             return {
                 "statusCode": 429,
-                "headers": cors_headers,
+                "headers": resp_headers,
                 "body": json.dumps({"error": "Bedrock is currently busy. Please try again shortly."}),
             }
         logger.exception("Unexpected error during parsing: %s", e)
         return {
             "statusCode": 500,
-            "headers": cors_headers,
+            "headers": resp_headers,
             "body": json.dumps({"error": f"Server error: {err_msg}"}),
         }
 
@@ -174,7 +171,7 @@ def handler(event, context):
 
     return {
         "statusCode": 200,
-        "headers": cors_headers,
+        "headers": resp_headers,
         "body": json.dumps(
             {
                 "agenda": agenda.model_dump(mode="json"),
