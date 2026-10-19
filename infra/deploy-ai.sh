@@ -19,8 +19,11 @@ main() {
   account="$(aws sts get-caller-identity --query Account --output text)"
   echo "==> Deploying '$AI_STACK' in account $account ($AWS_REGION)"
 
-  # 1. Image URI: reuse current backend container image
-  image="$(aws lambda get-function-configuration --function-name "$PROJECT_NAME-backend" --query "Code.ImageUri" --output text 2>/dev/null || true)"
+  # 1. Image URI: reuse current backend container image or IMAGE env var
+  image="${IMAGE:-}"
+  if [ -z "$image" ]; then
+    image="$(aws lambda get-function --function-name "$PROJECT_NAME-backend" --query "Code.ImageUri" --output text 2>/dev/null || true)"
+  fi
   if [ -z "$image" ] || [ "$image" = "None" ]; then
     repository="$(output "$ECR_STACK" RepositoryUri)"
     TAG="$(git rev-parse --short HEAD)"
