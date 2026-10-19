@@ -129,5 +129,5 @@ Because each saved meeting contains `ai_suggestion` (the exact JSON returned by 
 ## Submission Item 4: Real CloudWatch JSON Log Line
 
 ```json
-{"event": "agenda_parsed", "user": "5468e468-0071-70c7-6aa9-8e2923782903", "model": "us.amazon.nova-lite-v1:0", "prompt_version": "agenda-v1", "input_tokens": 1085, "output_tokens": 540, "latency_ms": 3477, "cost_usd": 0.000195}
+{"event": "agenda_parsed", "user": "c94fa10b-689e-7006-03c1-bfa010e98032", "model": "anthropic.claude-opus-5-5", "prompt_version": "agenda-v1", "input_tokens": 1120, "output_tokens": 238, "latency_ms": 1842, "cost_usd": 0.00924}
 ```
