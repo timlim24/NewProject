@@ -98,7 +98,6 @@ Resources:
         AllowOrigins: !Ref CorsOrigins
         AllowMethods:
           - POST
-          - OPTIONS
         AllowHeaders:
           - Content-Type
           - Authorization
