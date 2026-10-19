@@ -8,7 +8,7 @@ s ?=
 .DEFAULT_GOAL := help
 .PHONY: help env build up down restart logs ps migrate migration seed psql test lint format \
 	dev-backend dev-frontend install clean deploy deploy-auth deploy-backend deploy-frontend deploy-reports report-now \
-	destroy-auth destroy-backend destroy-frontend add-domain remove-domain infra-lint
+	deploy-ai llm-hello parse destroy-auth destroy-backend destroy-frontend add-domain remove-domain infra-lint
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(firstword $(MAKEFILE_LIST)) | \
@@ -81,7 +81,8 @@ AWS_ENV := AWS_ACCESS_KEY_ID="$(AWS_ACCESS_KEY_ID)" AWS_SECRET_ACCESS_KEY="$(AWS
 	PROJECT_NAME="$(or $(PROJECT_NAME),$(APP_NAME))" CORS_ORIGINS_AWS="$(CORS_ORIGINS_AWS)" \
 	LAMBDA_MEMORY="$(LAMBDA_MEMORY)" DOMAIN_NAME="$(DOMAIN_NAME)" HOSTED_ZONE_ID="$(HOSTED_ZONE_ID)" \
 	GOOGLE_CLIENT_ID="$(GOOGLE_CLIENT_ID)" GOOGLE_CLIENT_SECRET="$(GOOGLE_CLIENT_SECRET)" \
-	RECIPIENT_EMAIL="$(RECIPIENT_EMAIL)" SENDER_EMAIL="$(SENDER_EMAIL)"
+	RECIPIENT_EMAIL="$(RECIPIENT_EMAIL)" SENDER_EMAIL="$(SENDER_EMAIL)" \
+	PARSER_MODEL="$(PARSER_MODEL)"
 
 deploy: deploy-backend deploy-frontend ## Deploy the whole app to AWS (after make deploy-auth)
 
@@ -96,6 +97,16 @@ deploy-frontend: env ## Deploy frontend to S3 + CloudFront, wired to the Lambda 
 
 deploy-reports: env ## Deploy weekly reports infrastructure (S3, SQS, EventBridge, builder & mailer Lambdas)
 	@$(AWS_ENV) ./infra/deploy-reports.sh
+
+deploy-ai: env ## Deploy agenda parser Lambda (outside VPC, Function URL with Bedrock access)
+	@$(AWS_ENV) ./infra/deploy-ai.sh
+
+llm-hello: env ## Test Bedrock model access: make llm-hello [PARSER_MODEL=...]
+	@$(AWS_ENV) PYTHONPATH=backend python3 -m app.ai.cli hello
+
+parse: env ## Parse agenda text: make parse TEXT="..." [PARSER_MODEL=...]
+	@test -n "$(TEXT)" || (echo 'Usage: make parse TEXT="your agenda text"' && exit 1)
+	@$(AWS_ENV) PYTHONPATH=backend python3 -m app.ai.cli parse "$(TEXT)"
 
 report-now: env ## Generate a report on demand: make report-now WEEK=2026-W41
 	@test -n "$(WEEK)" || (echo 'Usage: make report-now WEEK=2026-W41' && exit 1)

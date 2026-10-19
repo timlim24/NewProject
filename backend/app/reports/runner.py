@@ -48,22 +48,55 @@ class LambdaHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b'{"status": "ready"}')
 
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS, GET")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.end_headers()
+        self.wfile.write(b"{}")
+
     def do_POST(self):
         content_length = int(self.headers.get("Content-Length", 0))
         post_data = self.rfile.read(content_length)
 
         try:
-            event = json.loads(post_data.decode("utf-8")) if post_data else {}
-        except Exception as e:
-            logger.error("Failed to parse incoming event JSON: %s", e)
-            self.send_response(400)
-            self.end_headers()
-            self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
-            return
+            raw_str = post_data.decode("utf-8") if post_data else "{}"
+            parsed_json = json.loads(raw_str) if raw_str else {}
+        except Exception:
+            parsed_json = {}
+
+        # If incoming event is already a Lambda envelope (e.g. from SQS or direct invoke), keep it.
+        # Otherwise wrap it in a Lambda HTTP event envelope so handlers get headers and body
+        if isinstance(parsed_json, dict) and ("headers" in parsed_json or "Records" in parsed_json):
+            event = parsed_json
+        else:
+            headers = {k.lower(): v for k, v in self.headers.items()}
+            event = {
+                "headers": headers,
+                "body": raw_str,
+                "httpMethod": "POST",
+                "path": self.path,
+            }
 
         try:
             handler_fn = self.server.handler_fn
             result = handler_fn(event, None)
+
+            # If handler returned an APIGateway/Function URL style dict with statusCode
+            if isinstance(result, dict) and "statusCode" in result:
+                self.send_response(result.get("statusCode", 200))
+                for h_k, h_v in result.get("headers", {}).items():
+                    self.send_header(h_k, h_v)
+                self.end_headers()
+                body_out = result.get("body", "")
+                if isinstance(body_out, str):
+                    self.wfile.write(body_out.encode("utf-8"))
+                else:
+                    self.wfile.write(json.dumps(body_out).encode("utf-8"))
+                return
+
             res_bytes = json.dumps(result or {}).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")

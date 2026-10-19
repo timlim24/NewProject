@@ -5,7 +5,7 @@ from sqlalchemy import text
 from app.auth import get_current_user
 from app.config import settings
 from app.db import SessionDep
-from app.routers import me, meetings, participants
+from app.routers import ai, me, meetings, participants
 
 app = FastAPI(
     title="Meetings API",
@@ -42,5 +42,6 @@ async def handle_events(request: Request):
 api.include_router(me.router)
 api.include_router(meetings.router)
 api.include_router(participants.router, dependencies=[Depends(get_current_user)])
+api.include_router(ai.router)
 app.include_router(api)
 

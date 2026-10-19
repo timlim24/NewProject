@@ -1,0 +1,129 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: LLM Agenda Parser Lambda function with Bedrock access and public Function URL
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: new-project
+    Description: Prefix for resource names and tags
+  ImageUri:
+    Type: String
+    Description: ECR container image URI for the backend / agenda parser
+  CognitoUserPoolId:
+    Type: String
+    Description: Cognito User Pool ID for ID token validation
+  CognitoClientId:
+    Type: String
+    Description: Cognito App Client ID for ID token validation
+  CorsOrigins:
+    Type: CommaDelimitedList
+    Default: "http://localhost:5173,http://localhost:3000"
+    Description: Allowed origins for CORS
+  ParserModel:
+    Type: String
+    Default: "anthropic.claude-opus-5-5"
+    Description: Bedrock model ID for agenda parsing
+
+Resources:
+  ParserLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /${ProjectName}/agenda-parser
+      RetentionInDays: 7
+      Tags:
+        - Key: PROJECT_NAME
+          Value: !Ref ProjectName
+
+  ParserRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: BedrockAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                  - bedrock-mantle:CreateInference
+                Resource: "*"
+      Tags:
+        - Key: PROJECT_NAME
+          Value: !Ref ProjectName
+
+  AgendaParserFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-agenda-parser
+      PackageType: Image
+      Code:
+        ImageUri: !Ref ImageUri
+      ImageConfig:
+        Command:
+          - "app.ai.agenda_lambda.handler"
+      MemorySize: 512
+      Timeout: 30
+      Role: !GetAtt ParserRole.Arn
+      LoggingConfig:
+        LogGroup: !Ref ParserLogGroup
+      Environment:
+        Variables:
+          PROJECT_NAME: !Ref ProjectName
+          COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
+          COGNITO_CLIENT_ID: !Ref CognitoClientId
+          PARSER_MODEL: !Ref ParserModel
+          AWS_LWA_PORT: "8080"
+          AWS_LWA_READINESS_CHECK_PATH: "/"
+          AWS_LWA_ASYNC_INIT: "true"
+      Tags:
+        - Key: PROJECT_NAME
+          Value: !Ref ProjectName
+
+  FunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !GetAtt AgendaParserFunction.Arn
+      AuthType: NONE
+      Cors:
+        AllowOrigins: !Ref CorsOrigins
+        AllowMethods:
+          - POST
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+          - Authorization
+        MaxAge: 300
+
+  FunctionUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AgendaParserFunction
+      Action: lambda:InvokeFunctionUrl
+      Principal: "*"
+      FunctionUrlAuthType: NONE
+
+  FunctionInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AgendaParserFunction
+      Action: lambda:InvokeFunction
+      Principal: "*"
+      InvokedViaFunctionUrl: true
+
+Outputs:
+  ParserUrl:
+    Description: Agenda Parser Lambda Function URL
+    Value: !GetAtt FunctionUrl.FunctionUrl
+  ParserFunctionName:
+    Description: Agenda Parser Lambda function name
+    Value: !Ref AgendaParserFunction

@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { addHours, format, isSameDay } from 'date-fns'
-import { CalendarIcon } from 'lucide-react'
+import { addHours, addMinutes, format, isSameDay } from 'date-fns'
+import { CalendarIcon, Loader2Icon, SparklesIcon } from 'lucide-react'
 import { Controller, useForm } from 'react-hook-form'
 import { toast } from 'sonner'
 import { z } from 'zod'
@@ -22,7 +22,7 @@ import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Textarea } from '@/components/ui/textarea'
 import { useCreateMeeting, useUpdateMeeting } from '@/hooks/queries'
-import type { Meeting } from '@/lib/api'
+import { api, type Meeting } from '@/lib/api'
 
 const timePattern = /^\d{2}:\d{2}$/
 
@@ -95,6 +95,14 @@ type Props = {
 
 export function MeetingFormDialog({ open, onOpenChange, meeting, initialStart }: Props) {
   const [datePickerOpen, setDatePickerOpen] = useState(false)
+  const [showPasteAgenda, setShowPasteAgenda] = useState(false)
+  const [pasteText, setPasteText] = useState('')
+  const [isParsing, setIsParsing] = useState(false)
+  const [parseError, setParseError] = useState<string | null>(null)
+  const [suggestedFields, setSuggestedFields] = useState<Set<string>>(new Set())
+  const [aiSuggestion, setAiSuggestion] = useState<Record<string, unknown> | null>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
+
   const createMeeting = useCreateMeeting()
   const updateMeeting = useUpdateMeeting()
   const isEditing = Boolean(meeting)
@@ -104,13 +112,149 @@ export function MeetingFormDialog({ open, onOpenChange, meeting, initialStart }:
     defaultValues,
   })
 
+  const resetAiState = () => {
+    abortControllerRef.current?.abort()
+    setIsParsing(false)
+    setParseError(null)
+    setSuggestedFields(new Set())
+    setAiSuggestion(null)
+    setShowPasteAgenda(false)
+    setPasteText('')
+  }
+
   useEffect(() => {
     if (!open) return
-    if (meeting) form.reset(toFormValues(meeting))
-    else form.reset(initialStart ? newMeetingValues(initialStart) : defaultValues)
+    if (meeting) {
+      form.reset(toFormValues(meeting))
+      if (meeting.ai_suggestion) {
+        setAiSuggestion(meeting.ai_suggestion)
+      }
+    } else {
+      form.reset(initialStart ? newMeetingValues(initialStart) : defaultValues)
+    }
   }, [open, meeting, initialStart, form])
 
-  const close = (next: boolean) => onOpenChange(next)
+  const close = (next: boolean) => {
+    if (!next) resetAiState()
+    onOpenChange(next)
+  }
+
+  const markTouched = (fieldName: string) => {
+    if (suggestedFields.has(fieldName)) {
+      setSuggestedFields((prev) => {
+        const next = new Set(prev)
+        next.delete(fieldName)
+        return next
+      })
+    }
+  }
+
+  const handleParse = async () => {
+    const textToParse = pasteText.trim()
+    if (!textToParse) return
+    if (textToParse.length > 10000) {
+      setParseError('Text is too long (maximum 10,000 characters).')
+      return
+    }
+
+    setParseError(null)
+    setIsParsing(true)
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
+    try {
+      const res = await api.parseAgenda(textToParse, controller.signal)
+      const { agenda, model, prompt_version } = res
+
+      const newSuggested = new Set<string>()
+
+      // Fill title
+      if (agenda.title) {
+        form.setValue('title', agenda.title, { shouldValidate: true })
+        newSuggested.add('title')
+      }
+
+      // Fill start and end times if available
+      if (agenda.starts_at) {
+        try {
+          const start = new Date(agenda.starts_at)
+          if (!isNaN(start.getTime())) {
+            form.setValue('date', start, { shouldValidate: true })
+            newSuggested.add('date')
+            form.setValue('startTime', format(start, 'HH:mm'), { shouldValidate: true })
+            newSuggested.add('startTime')
+
+            const durationMin = agenda.duration_minutes ?? 45
+            const end = addMinutes(start, durationMin)
+            form.setValue('endTime', format(end, 'HH:mm'), { shouldValidate: true })
+            newSuggested.add('endTime')
+          }
+        } catch {
+          // ignore date parse issue
+        }
+      } else if (agenda.duration_minutes) {
+        const [sh, sm] = form.getValues('startTime').split(':').map(Number)
+        const baseDate = form.getValues('date') || new Date()
+        const start = new Date(baseDate)
+        start.setHours(sh, sm, 0, 0)
+        const end = addMinutes(start, agenda.duration_minutes)
+        form.setValue('endTime', format(end, 'HH:mm'), { shouldValidate: true })
+        newSuggested.add('endTime')
+      }
+
+      // Format items and action items into description
+      const descParts: string[] = []
+      if (agenda.items && agenda.items.length > 0) {
+        descParts.push('Agenda:')
+        agenda.items.forEach((item, idx) => {
+          let line = `${idx + 1}. ${item.topic}`
+          const details: string[] = []
+          if (item.owner) details.push(item.owner)
+          if (item.minutes) details.push(`${item.minutes} min`)
+          if (details.length > 0) line += ` (${details.join(', ')})`
+          descParts.push(line)
+        })
+      }
+
+      if (agenda.action_items && agenda.action_items.length > 0) {
+        if (descParts.length > 0) descParts.push('')
+        descParts.push('Action items:')
+        agenda.action_items.forEach((item) => {
+          let line = `• ${item.task}`
+          const details: string[] = []
+          if (item.owner) details.push(`Owner: ${item.owner}`)
+          if (item.due) details.push(`Due: ${item.due}`)
+          if (details.length > 0) line += ` (${details.join(', ')})`
+          descParts.push(line)
+        })
+      }
+
+      if (descParts.length > 0) {
+        form.setValue('description', descParts.join('\n'), { shouldValidate: true })
+        newSuggested.add('description')
+      }
+
+      setSuggestedFields(newSuggested)
+      setAiSuggestion({
+        parsed_agenda: agenda,
+        model,
+        prompt_version,
+        input_text: textToParse,
+      })
+      toast.success('Agenda parsed! Review the suggested fields.')
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        toast.info('Parsing cancelled.')
+      } else {
+        const msg = err instanceof Error ? err.message : 'Failed to parse agenda'
+        setParseError(msg)
+        toast.error(msg)
+      }
+    } finally {
+      setIsParsing(false)
+      abortControllerRef.current = null
+    }
+  }
 
   const onSubmit = form.handleSubmit((values) => {
     const data = {
@@ -120,6 +264,7 @@ export function MeetingFormDialog({ open, onOpenChange, meeting, initialStart }:
       ends_at: combine(values.date, values.endTime),
       place: values.place.trim(),
       participant_ids: values.participantIds,
+      ai_suggestion: aiSuggestion ?? (meeting?.ai_suggestion || undefined),
     }
     const callbacks = {
       onSuccess: (saved: Meeting) => {
@@ -134,6 +279,16 @@ export function MeetingFormDialog({ open, onOpenChange, meeting, initialStart }:
       createMeeting.mutate(data, callbacks)
     }
   })
+
+  const renderSuggestedBadge = (fieldName: string) => {
+    if (!suggestedFields.has(fieldName)) return null
+    return (
+      <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-blue-500/15 px-2 py-0.5 text-[11px] font-medium text-blue-600 dark:bg-blue-400/20 dark:text-blue-300">
+        <SparklesIcon className="size-3" />
+        Suggested
+      </span>
+    )
+  }
 
   return (
     <Dialog open={open} onOpenChange={close}>
@@ -150,14 +305,91 @@ export function MeetingFormDialog({ open, onOpenChange, meeting, initialStart }:
           noValidate
           className="-mx-6 overflow-y-auto px-6 py-1"
         >
+          {/* Paste an agenda panel */}
+          <div className="mb-4 rounded-lg border border-border/70 bg-muted/30 p-3">
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setShowPasteAgenda((prev) => !prev)}
+                className="flex items-center gap-2 text-sm font-medium text-foreground/90 transition-colors hover:text-foreground cursor-pointer"
+              >
+                <SparklesIcon className="size-4 text-blue-500" />
+                <span>Paste an agenda</span>
+                <span className="text-xs font-normal text-muted-foreground">
+                  ({showPasteAgenda ? 'hide' : 'AI parse notes or email'})
+                </span>
+              </button>
+            </div>
+
+            {showPasteAgenda && (
+              <div className="mt-3 flex flex-col gap-3">
+                <Textarea
+                  placeholder="Paste an email, Slack message, or raw notes here..."
+                  rows={4}
+                  value={pasteText}
+                  onChange={(e) => setPasteText(e.target.value)}
+                  disabled={isParsing}
+                  className="font-mono text-xs"
+                />
+                {parseError && (
+                  <div className="rounded-md bg-destructive/15 px-3 py-2 text-xs font-medium text-destructive">
+                    {parseError}
+                  </div>
+                )}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    {pasteText.length} / 10,000 characters
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {isParsing ? (
+                      <>
+                        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <Loader2Icon className="size-3.5 animate-spin text-blue-500" />
+                          Parsing with Amazon Bedrock...
+                        </span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => abortControllerRef.current?.abort()}
+                        >
+                          Cancel
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        disabled={!pasteText.trim()}
+                        onClick={handleParse}
+                        className="gap-1.5"
+                      >
+                        <SparklesIcon className="size-3.5" />
+                        Parse with AI
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           <FieldGroup>
             <Controller
               name="title"
               control={form.control}
               render={({ field, fieldState }) => (
                 <Field data-invalid={fieldState.invalid}>
-                  <FieldLabel htmlFor="meeting-title">Title</FieldLabel>
-                  <Input id="meeting-title" aria-invalid={fieldState.invalid} {...field} />
+                  <FieldLabel htmlFor="meeting-title">
+                    Title {renderSuggestedBadge('title')}
+                  </FieldLabel>
+                  <Input
+                    id="meeting-title"
+                    aria-invalid={fieldState.invalid}
+                    {...field}
+                    onFocus={() => markTouched('title')}
+                  />
                   <FieldError errors={[fieldState.error]} />
                 </Field>
               )}
@@ -168,8 +400,15 @@ export function MeetingFormDialog({ open, onOpenChange, meeting, initialStart }:
               control={form.control}
               render={({ field }) => (
                 <Field>
-                  <FieldLabel htmlFor="meeting-description">Description</FieldLabel>
-                  <Textarea id="meeting-description" rows={3} {...field} />
+                  <FieldLabel htmlFor="meeting-description">
+                    Description {renderSuggestedBadge('description')}
+                  </FieldLabel>
+                  <Textarea
+                    id="meeting-description"
+                    rows={3}
+                    {...field}
+                    onFocus={() => markTouched('description')}
+                  />
                 </Field>
               )}
             />
@@ -180,7 +419,9 @@ export function MeetingFormDialog({ open, onOpenChange, meeting, initialStart }:
                 control={form.control}
                 render={({ field, fieldState }) => (
                   <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor="meeting-date">Date</FieldLabel>
+                    <FieldLabel htmlFor="meeting-date">
+                      Date {renderSuggestedBadge('date')}
+                    </FieldLabel>
                     <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
                       <PopoverTrigger asChild>
                         <Button
@@ -203,6 +444,7 @@ export function MeetingFormDialog({ open, onOpenChange, meeting, initialStart }:
                           mode="single"
                           selected={field.value}
                           onSelect={(date) => {
+                            markTouched('date')
                             field.onChange(date)
                             setDatePickerOpen(false)
                           }}
@@ -219,12 +461,15 @@ export function MeetingFormDialog({ open, onOpenChange, meeting, initialStart }:
                 control={form.control}
                 render={({ field, fieldState }) => (
                   <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor="meeting-start">Start</FieldLabel>
+                    <FieldLabel htmlFor="meeting-start">
+                      Start {renderSuggestedBadge('startTime')}
+                    </FieldLabel>
                     <Input
                       id="meeting-start"
                       type="time"
                       aria-invalid={fieldState.invalid}
                       {...field}
+                      onFocus={() => markTouched('startTime')}
                     />
                     <FieldError errors={[fieldState.error]} />
                   </Field>
@@ -235,12 +480,15 @@ export function MeetingFormDialog({ open, onOpenChange, meeting, initialStart }:
                 control={form.control}
                 render={({ field, fieldState }) => (
                   <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor="meeting-end">End</FieldLabel>
+                    <FieldLabel htmlFor="meeting-end">
+                      End {renderSuggestedBadge('endTime')}
+                    </FieldLabel>
                     <Input
                       id="meeting-end"
                       type="time"
                       aria-invalid={fieldState.invalid}
                       {...field}
+                      onFocus={() => markTouched('endTime')}
                     />
                     <FieldError errors={[fieldState.error]} />
                   </Field>

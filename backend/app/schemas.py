@@ -52,6 +52,7 @@ class MeetingCreate(BaseModel):
     ends_at: AwareDatetime
     place: Annotated[NonEmptyStr, StringConstraints(max_length=200)]
     participant_ids: list[uuid.UUID] = []
+    ai_suggestion: dict | None = None
 
     @model_validator(mode="after")
     def check_times(self) -> MeetingCreate:
@@ -72,6 +73,7 @@ class MeetingRead(BaseModel):
     ends_at: datetime
     place: str
     participants: list[ParticipantRead]
+    ai_suggestion: dict | None = None
     created_at: datetime
 
     @field_serializer("starts_at", "ends_at", "created_at")

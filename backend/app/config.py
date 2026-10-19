@@ -21,6 +21,7 @@ class Settings(BaseSettings):
         "http://localhost:5173",
         "http://localhost:3000",
     ]
+    parser_model: str = "anthropic.claude-opus-5-5"
 
     @field_validator("cors_origins", mode="before")
     @classmethod

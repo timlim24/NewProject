@@ -68,6 +68,7 @@ async def create_meeting(payload: MeetingCreate, session: SessionDep, user: Curr
         place=payload.place,
         participants=participants,
         owner_id=user.id,
+        ai_suggestion=payload.ai_suggestion,
     )
     session.add(meeting)
     await session.commit()
@@ -85,6 +86,8 @@ async def update_meeting(
     meeting.starts_at = payload.starts_at
     meeting.ends_at = payload.ends_at
     meeting.place = payload.place
+    if payload.ai_suggestion is not None:
+        meeting.ai_suggestion = payload.ai_suggestion
     await session.commit()
     session.expunge(meeting)
     return await _get_meeting(session, meeting_id, user)
