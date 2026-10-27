@@ -7,8 +7,9 @@ s ?=
 
 .DEFAULT_GOAL := help
 .PHONY: help env build up down restart logs ps migrate migration seed psql test lint format \
-	dev-backend dev-frontend install clean deploy deploy-auth deploy-backend deploy-frontend deploy-reports report-now \
-	deploy-ai llm-hello parse destroy-auth destroy-backend destroy-frontend add-domain remove-domain infra-lint
+	dev-backend dev-frontend install clean deploy deploy-backend deploy-frontend report-now \
+	llm-hello parse destroy-backend destroy-frontend add-domain remove-domain \
+	infra-plan infra-fmt infra-validate infra-lint
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(firstword $(MAKEFILE_LIST)) | \
@@ -84,22 +85,22 @@ AWS_ENV := AWS_ACCESS_KEY_ID="$(AWS_ACCESS_KEY_ID)" AWS_SECRET_ACCESS_KEY="$(AWS
 	RECIPIENT_EMAIL="$(RECIPIENT_EMAIL)" SENDER_EMAIL="$(SENDER_EMAIL)" \
 	PARSER_MODEL="$(PARSER_MODEL)"
 
-deploy: deploy-backend deploy-frontend ## Deploy the whole app to AWS (after make deploy-auth)
+deploy: deploy-backend deploy-frontend ## Deploy the whole app to AWS (backend and frontend)
 
-deploy-auth: env ## Deploy Cognito (user pool + app client), print its settings and write them to .env
-	@$(AWS_ENV) ./infra/deploy-auth.sh
+infra-plan: env ## Run speculative Terraform plan against HCP Terraform
+	cd infra && terraform plan
+
+infra-fmt: ## Check Terraform formatting
+	cd infra && terraform fmt -check
+
+infra-validate: ## Validate Terraform syntax and configuration
+	cd infra && terraform validate
 
 deploy-backend: env ## Deploy backend (Lambda) + database (Aurora Serverless) to AWS, see infra/
 	@$(AWS_ENV) ./infra/deploy-backend.sh
 
 deploy-frontend: env ## Deploy frontend to S3 + CloudFront, wired to the Lambda URL (after deploy-backend)
 	@$(AWS_ENV) ./infra/deploy-frontend.sh
-
-deploy-reports: env ## Deploy weekly reports infrastructure (S3, SQS, EventBridge, builder & mailer Lambdas)
-	@$(AWS_ENV) ./infra/deploy-reports.sh
-
-deploy-ai: env ## Deploy agenda parser Lambda (outside VPC, Function URL with Bedrock access)
-	@$(AWS_ENV) ./infra/deploy-ai.sh
 
 llm-hello: env ## Test Bedrock model access: make llm-hello [PARSER_MODEL=...]
 	@$(AWS_ENV) PYTHONPATH=backend python3 -m app.ai.cli hello
@@ -117,9 +118,6 @@ add-domain: env ## Attach DOMAIN_NAME from .env to the deployed frontend
 
 remove-domain: env ## Detach the custom domain and delete its certificate
 	@$(AWS_ENV) ./infra/remove-domain.sh
-
-destroy-auth: env ## Delete the Cognito stack (the user pool and its accounts are kept)
-	@$(AWS_ENV) ./infra/destroy-auth.sh
 
 destroy-backend: env ## Delete the AWS backend stacks (keeps a final DB snapshot)
 	@$(AWS_ENV) ./infra/destroy-backend.sh

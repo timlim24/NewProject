@@ -7,3 +7,10 @@ node_modules/
 dist/
 .idea/
 .DS_Store
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars.json
