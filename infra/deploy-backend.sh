@@ -59,9 +59,13 @@ main() {
 
   echo "==> [4/5] Lambda + database ($BACKEND_STACK)"
   pool_id="$(output "$AUTH_STACK" UserPoolId)"
+  [ -z "$pool_id" ] && pool_id="$(tf_output UserPoolId)"
   client_id="$(output "$AUTH_STACK" UserPoolClientId)"
+  [ -z "$client_id" ] && client_id="$(tf_output UserPoolClientId)"
+  issuer="$(output "$AUTH_STACK" Issuer)"
+  [ -z "$issuer" ] && issuer="$(tf_output Issuer)"
   # The function has no internet access, so it gets the token signing keys up front.
-  jwks="$(curl -fsS "$(output "$AUTH_STACK" Issuer)/.well-known/jwks.json" \
+  jwks="$(curl -fsS "$issuer/.well-known/jwks.json" \
     | python3 -c 'import json, sys; print(json.dumps(json.load(sys.stdin), separators=(",", ":")))')"
   echo "    Cognito: $pool_id (client $client_id)"
   # Includes the frontend's addresses once it is deployed, so a redeploy keeps them.

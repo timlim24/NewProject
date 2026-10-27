@@ -24,7 +24,12 @@ STACK_TAGS=("$TAG_KEY=$PROJECT_NAME")
 # output STACK KEY [REGION]: prints one CloudFormation stack output (empty if absent).
 output() {
   aws cloudformation describe-stacks --stack-name "$1" --region "${3:-$AWS_REGION}" \
-    --query "Stacks[0].Outputs[?OutputKey=='$2'].OutputValue" --output text
+    --query "Stacks[0].Outputs[?OutputKey=='$2'].OutputValue" --output text 2>/dev/null || true
+}
+
+# tf_output KEY: prints one Terraform output from infra/
+tf_output() {
+  (cd "$(dirname "${BASH_SOURCE[0]}")" && terraform output -raw "$1" 2>/dev/null || true)
 }
 
 # stack_exists STACK [REGION]
@@ -92,8 +97,11 @@ update_auth_urls() {
 
 # require_auth_stack: exits with a hint when Cognito has not been deployed yet.
 require_auth_stack() {
+  if [ -n "$(tf_output UserPoolId)" ]; then
+    return 0
+  fi
   stack_exists "$AUTH_STACK" || {
-    echo "Stack $AUTH_STACK not found; run make deploy-auth first." >&2
+    echo "Auth infrastructure not found in Terraform or CloudFormation; please deploy via HCP Terraform or make infra-plan." >&2
     exit 1
   }
 }

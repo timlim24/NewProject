@@ -12,19 +12,29 @@ main() {
   stack_exists "$BACKEND_STACK" || { echo "Stack $BACKEND_STACK not found; run make deploy-backend first." >&2; exit 1; }
   require_auth_stack
   api_base_url="$(output "$BACKEND_STACK" ApiBaseUrl)"
-  parser_url=""
-  if stack_exists "$PROJECT_NAME-ai"; then
-    parser_url="$(output "$PROJECT_NAME-ai" ParserUrl 2>/dev/null || true)"
-  fi
+  parser_url="$(output "$PROJECT_NAME-ai" ParserUrl 2>/dev/null || true)"
+  [ -z "$parser_url" ] && parser_url="$(tf_output ParserUrl)"
+
+  user_pool_id="$(output "$AUTH_STACK" UserPoolId 2>/dev/null || true)"
+  [ -z "$user_pool_id" ] && user_pool_id="$(tf_output UserPoolId)"
+
+  client_id="$(output "$AUTH_STACK" UserPoolClientId 2>/dev/null || true)"
+  [ -z "$client_id" ] && client_id="$(tf_output UserPoolClientId)"
+
+  cognito_domain="$(output "$AUTH_STACK" Domain 2>/dev/null || true)"
+  [ -z "$cognito_domain" ] && cognito_domain="$(tf_output Domain)"
+
+  google_enabled="$(output "$AUTH_STACK" GoogleEnabled 2>/dev/null || true)"
+  [ -z "$google_enabled" ] && google_enabled="$(tf_output GoogleEnabled)"
 
   echo "==> [1/6] Build the frontend (API: $api_base_url, Parser: $parser_url)"
   (cd frontend && npm ci && \
     VITE_API_URL="$api_base_url" \
     VITE_AGENDA_PARSER_URL="$parser_url" \
-    COGNITO_USER_POOL_ID="$(output "$AUTH_STACK" UserPoolId)" \
-    COGNITO_CLIENT_ID="$(output "$AUTH_STACK" UserPoolClientId)" \
-    COGNITO_DOMAIN="$(output "$AUTH_STACK" Domain)" \
-    COGNITO_GOOGLE_ENABLED="$(output "$AUTH_STACK" GoogleEnabled)" \
+    COGNITO_USER_POOL_ID="$user_pool_id" \
+    COGNITO_CLIENT_ID="$client_id" \
+    COGNITO_DOMAIN="$cognito_domain" \
+    COGNITO_GOOGLE_ENABLED="$google_enabled" \
     npm run build)
 
   echo "==> [2/6] S3 bucket + CloudFront ($FRONTEND_STACK)"
