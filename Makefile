@@ -9,7 +9,9 @@ s ?=
 .PHONY: help env build up down restart logs ps migrate migration seed psql test lint format \
 	dev-backend dev-frontend install clean deploy deploy-backend deploy-frontend report-now \
 	llm-hello parse destroy-backend destroy-frontend add-domain remove-domain \
-	infra-plan infra-fmt infra-validate infra-lint
+	infra-plan infra-fmt infra-validate infra-lint \
+	gcp-plan gcp-fmt gcp-validate gcp-deploy gcp-deploy-backend gcp-deploy-frontend \
+	gcp-db-start gcp-db-stop gcp-db-status
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(firstword $(MAKEFILE_LIST)) | \
@@ -127,3 +129,33 @@ destroy-frontend: env ## Delete the S3 bucket, CloudFront distribution and domai
 
 infra-lint: ## Lint the CloudFormation templates
 	uvx cfn-lint infra/*.yaml
+
+# --- Google Cloud (gcp/): Cloud Run + Cloud SQL + Firebase Hosting. Credentials come from the
+# gcloud CLI (application default credentials), never from a key file. See README.
+
+gcp-plan: ## Speculative terraform plan of gcp/ in HCP Terraform
+	cd gcp && terraform plan
+
+gcp-fmt: ## Check Terraform formatting of gcp/
+	terraform fmt -recursive -check gcp
+
+gcp-validate: ## Validate gcp/ and gcp/bootstrap/
+	cd gcp && terraform validate
+	cd gcp/bootstrap && terraform validate
+
+gcp-deploy: gcp-deploy-backend gcp-deploy-frontend ## Deploy the app to Google Cloud (after gcp/ is applied)
+
+gcp-deploy-backend: ## Build the backend image, push to Artifact Registry, roll out on Cloud Run
+	@./gcp/deploy-backend.sh
+
+gcp-deploy-frontend: ## Build the frontend and deploy it to Firebase Hosting
+	@./gcp/deploy-frontend.sh
+
+gcp-db-stop: ## Stop the Cloud SQL instance (storage still bills, compute does not)
+	@./gcp/db.sh stop
+
+gcp-db-start: ## Start the Cloud SQL instance again
+	@./gcp/db.sh start
+
+gcp-db-status: ## Show whether the Cloud SQL instance is running
+	@./gcp/db.sh status
