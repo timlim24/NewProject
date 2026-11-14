@@ -1,3 +1,5 @@
+import os
+
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
@@ -30,12 +32,16 @@ async def health(session: SessionDep) -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/events")
-async def handle_events(request: Request):
-    event = await request.json()
-    from app.reports.lambda_handler import handler
+# The Lambda Web Adapter forwards non-HTTP events (SQS, schedules) to POST /events. It exists
+# only on Lambda: on Cloud Run or locally it would be an unauthenticated public endpoint.
+if os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
 
-    return handler(event, None)
+    @app.post("/events")
+    async def handle_events(request: Request):
+        event = await request.json()
+        from app.reports.lambda_handler import handler
+
+        return handler(event, None)
 
 
 # Everything but /api/health needs a signed-in user; meetings are scoped to their owner.
@@ -44,4 +50,3 @@ api.include_router(meetings.router)
 api.include_router(participants.router, dependencies=[Depends(get_current_user)])
 api.include_router(ai.router)
 app.include_router(api)
-

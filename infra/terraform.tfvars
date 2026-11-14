@@ -1,6 +1,6 @@
 region           = "us-east-1"
 project_name     = "new-project"
-app_urls         = ["http://localhost:5173", "http://localhost:3000", "https://d20l36mtpotzsl.cloudfront.net"]
+app_urls         = ["http://localhost:5173", "http://localhost:3000", "https://d20l36mtpotzsl.cloudfront.net", "https://spry-514721.web.app", "https://spry-514721.firebaseapp.com"]
 google_client_id = "52279711522-l4br3rs59bjuhtlv8t36ssde3cl91plm.apps.googleusercontent.com"
 sender_email     = "timlim.game@gmail.com"
 recipient_email  = "timlim.game@gmail.com"
