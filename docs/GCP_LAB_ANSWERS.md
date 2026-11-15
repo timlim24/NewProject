@@ -6,10 +6,10 @@ Service choices: [ADR 0008](adr/0008-google-cloud.md). How to deploy: [README](.
 
 | Item | Where |
 |---|---|
-| `gcp/` Terraform + ADR | `gcp/`, `gcp/bootstrap/`, `docs/adr/0008-google-cloud.md`. Commit/PR link: _TODO after push_ |
-| Running on Google Cloud | Frontend `https://spry-514721.web.app`. API call that reads the database: `GET /api/health` (`SELECT 1`) and, once signed in, `GET /api/meetings`. _TODO: confirm after `make gcp-deploy`_ |
+| `gcp/` Terraform + ADR | [PR #1](https://github.com/timlim24/NewProject/pull/1), merged as `f07495e`: `gcp/`, `gcp/bootstrap/`, `docs/adr/0008-google-cloud.md` |
+| Running on Google Cloud | Frontend: https://spry-514721.web.app. API call that reads the database: https://spry-514721.web.app/api/health runs `SELECT 1` on Cloud SQL and returns `{"status":"ok"}`. Signed in, the meetings list comes from `GET /api/meetings` on Cloud SQL. Sign-in itself is Cognito on AWS |
 | Cost table | [Part 3](#part-3-the-minimal-setup-on-both-clouds-and-what-it-costs) below |
-| Screenshots | BigQuery query, Looker Studio chart, Document AI / Vision OCR. _TODO: `docs/img/gcp-*.png`_ |
+| Screenshots | [Part 4](#demos): BigQuery query and bytes processed, Looker Studio chart, Document AI OCR result |
 
 ## Part 0: Project and identities
 
@@ -143,23 +143,60 @@ trap in three places:
 
 ## Part 4: What else Google Cloud is good at
 
-### Demos (screenshots go in `docs/img/`)
-1. **BigQuery** (sandbox, no card). The query below scans one column pair of a public table;
-   record *Bytes processed* from the job information panel.
-   ```sql
-   SELECT name, SUM(number) AS total
-   FROM `bigquery-public-data.usa_names.usa_1910_current`
-   WHERE year >= 2000
-   GROUP BY name
-   ORDER BY total DESC
-   LIMIT 20;
-   ```
-   _TODO: screenshot and bytes processed_
-2. **Looker Studio:** *Explore with Looker Studio* from the query result; bar chart of
-   `name` by `total`. _TODO: screenshot_
-3. **Document AI OCR:** Document AI → Processor gallery → *Enterprise Document OCR* (create in
-   `us`). Upload one PDF, such as a printed meeting agenda. The first 1,000 pages a month are
-   free. _TODO: screenshot_
+### Demos
+
+#### 1. BigQuery
+The query runs over a public dataset in project `spry-514721`:
+```sql
+SELECT name, SUM(number) AS total
+FROM `bigquery-public-data.usa_names.usa_1910_current`
+WHERE year >= 2000
+GROUP BY name
+ORDER BY total DESC
+LIMIT 20;
+```
+- **Bytes processed: 143.71 MB** (150,693,282 bytes). Bytes billed: 144 MB, because
+  BigQuery rounds up to the next MB, with a minimum of 10 MB per table. Duration: 736 ms.
+- **Cost: $0.** The first 1 TiB a month is free. Without that, the query would cost
+  0.000137 TiB × $6.25 ≈ $0.0009.
+- The query reads only the columns it names (`name`, `number`, `year`), not the whole table.
+  On columnar storage, what decides the bill is choosing columns, not `LIMIT`: `LIMIT 20`
+  scans exactly as much as no limit.
+
+![BigQuery results](img/gcp-bigquery-results.png)
+![BigQuery job information: bytes processed](img/gcp-bigquery-job.png)
+
+#### 2. Looker Studio
+I opened the query result with *Open in → Data Studio*; Google now lists Looker Studio under
+that name in BigQuery's menu. The report is a bar chart with `name` as the dimension and
+`total` (sum) as the metric, sorted descending, next to the result table. It is free and
+needs no data export: the report queries BigQuery directly.
+
+![Looker Studio chart](img/gcp-looker-studio.png)
+
+#### 3. Document AI OCR
+I created an *Enterprise Document OCR* processor (`ocr-demo`, region `us`) and uploaded one
+page. The cost is $0, within the first 1,000 pages a month.
+
+The input is Lab 6's pricing-sync agenda, laid out as a page of a lined notebook:
+[`img/gcp-ocr-input.png`](img/gcp-ocr-input.png). It is **generated**, rendered in the
+handwriting-style font Caveat. That is an easier test than real handwriting, because every
+letter is drawn the same way.
+
+![Document AI OCR result](img/gcp-document-ai-ocr.png)
+
+What the result shows:
+- **Every word is correct**, in mixed Ukrainian and English: «Синк по прайсингу», «Фідбек від
+  клієнтів – Taras, 20 хв», «Q&A», «20% чи 15%», «Q3». That includes Cyrillic letters such as
+  «є», «і» and «Щ».
+- **Layout is approximate.** The page is split into seven blocks, matching its visual
+  groups. But the first line, «Пн, 19.10 — 10:00, 45 хв», is cut in two: the time ends up
+  in the same block as «Де: переговорка 2 / Zoom».
+- **Small marks are lost.** The dash before «лишаємо 20% чи 15%» and before the signature
+  disappeared, and so did the indentation that showed the line belongs to item 3. Em dashes
+  came back as en dashes.
+- **It is text, not meaning.** The output does not say that «Пн, 19.10» is 2026-10-19, that
+  Олена owns item 1, or that «до пт» is a due date. Lab 6's parser does exactly that step.
 
 ### Lab 6 parsed an agenda with an LLM. When is a specialised service like Document AI better?
 - **Document AI / Vision is better** when the input is an *image or a scanned PDF*, and when
